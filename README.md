@@ -13,7 +13,7 @@ The framework is equipped with various fairness-enhancing methods and privacy at
 
 The repository is organized as follows:
 
-.
+. \
 ├── data/                             # Contains dataset files \
 ├── Extra/                            # Additional resources, scripts, or experimental files \
 ├── Fairness_Enhancing_Methods/        # Algorithms that improve fairness in federated learning \
