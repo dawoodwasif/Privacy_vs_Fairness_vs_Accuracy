@@ -1,4 +1,4 @@
-# Privacy_vs_Fairness: A Federated Learning Framework for Evaluating the Relationship of Privacy Preservation and Fairness
+# Privacy vs Fairness: A Federated Learning Framework for Evaluating the Relationship of Privacy Preservation and Fairness
 
 ## Overview
 
