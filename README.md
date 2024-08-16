@@ -14,13 +14,13 @@ The framework is equipped with various fairness-enhancing methods and privacy at
 The repository is organized as follows:
 
 .
-├── data/                             # Contains dataset files
-├── Extra/                            # Additional resources, scripts, or experimental files
-├── Fairness_Enhancing_Methods/        # Algorithms that improve fairness in federated learning
-├── Privacy_Attack_Models/             # Implementations of attack models such as Membership Inference Attacks (MIA) and Gradient Inversion Attacks (GIA)
-├── Privacy_Preservation_Techniques/   # Implementations of Differential Privacy, Homomorphic Encryption, and MPC
-├── README.md                         # Project overview and instructions
-├── requirements.txt                  # Python dependencies
+├── data/                             # Contains dataset files \
+├── Extra/                            # Additional resources, scripts, or experimental files \
+├── Fairness_Enhancing_Methods/        # Algorithms that improve fairness in federated learning \
+├── Privacy_Attack_Models/             # Implementations of attack models such as Membership Inference Attacks (MIA) and Gradient Inversion Attacks (GIA) \
+├── Privacy_Preservation_Techniques/   # Implementations of Differential Privacy, Homomorphic Encryption, and MPC \
+├── README.md                         # Project overview and instructions \
+├── requirements.txt                  # Python dependencies \
 
 
 
