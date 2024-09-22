@@ -15,10 +15,8 @@ The repository is organized as follows:
 
 . \
 ├── data/                             # Contains dataset files \
-├── Extra/                            # Additional resources, scripts, or experimental files \
-├── Fairness_Enhancing_Methods/        # Algorithms that improve fairness in federated learning \
-├── Privacy_Attack_Models/             # Implementations of attack models such as Membership Inference Attacks (MIA) and Gradient Inversion Attacks (GIA) \
-├── Privacy_Preservation_Techniques/   # Implementations of Differential Privacy, Homomorphic Encryption, and MPC \
+├── attack_modes/                     # Resources for simulating attack models \
+├── fl_algorithms/                    # Algorithms for fair and private federated learning \
 ├── README.md                         # Project overview and instructions \
 ├── requirements.txt                  # Python dependencies \
 
@@ -34,7 +32,7 @@ The repository is organized as follows:
 - **Privacy-Preserving Techniques**: 
   - **DP**: Adds noise to gradients to ensure privacy.
   - **HE (via TenSEAL)**: Encrypts gradients using CKKS for secure computation.
-  - **MPC**: Securely splits the data among clients to prevent centralized exposure.
+  - **SMC**: Securely splits the data among clients to prevent centralized exposure.
 
 ## Requirements
 

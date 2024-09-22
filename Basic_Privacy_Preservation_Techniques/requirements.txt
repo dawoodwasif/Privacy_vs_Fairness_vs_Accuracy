@@ -1,7 +1,0 @@
-torchvision==0.2.1
-matplotlib
-scikit-learn
-#pip install torch==0.4.1 -f https://download.pytorch.org/whl/torch_stable.html
-pycryptodome
-
-
