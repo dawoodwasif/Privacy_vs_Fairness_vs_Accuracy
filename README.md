@@ -15,7 +15,7 @@ The repository is organized as follows:
 
 . \
 ├── data/                             # Contains dataset files \
-├── attack_modes/                     # Resources for simulating attack models \
+├── attack_models/                     # Resources for simulating attack models \
 ├── privfair_fl/                    # Algorithms for fair and private federated learning \
 ├── README.md                         # Project overview and instructions \
 ├── requirements.txt                  # Python dependencies \
@@ -43,5 +43,20 @@ pip install -r requirements.txt
 ```
 
 ## Usage
+
+For attack models, do
+
+```
+cd attack_models
+```
+and follow the instructions.
+
+Similarly for running a private or fair FL algorithm, do
+
+```
+cd privfair_fl
+```
+and follow the instructions.
+
 ## Contributions
 ## Liscence
