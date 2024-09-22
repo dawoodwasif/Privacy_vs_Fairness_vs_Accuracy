@@ -16,7 +16,7 @@ The repository is organized as follows:
 . \
 ├── data/                             # Contains dataset files \
 ├── attack_modes/                     # Resources for simulating attack models \
-├── fl_algorithms/                    # Algorithms for fair and private federated learning \
+├── privfair_fl/                    # Algorithms for fair and private federated learning \
 ├── README.md                         # Project overview and instructions \
 ├── requirements.txt                  # Python dependencies \
 
