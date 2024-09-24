@@ -1,11 +1,4 @@
-# Fair Resource Allocation in Federated Learning
-
-
-This repository contains the code and experiments for the paper:
-
-> [Fair Resource Allocation in Federated Learning](https://openreview.net/forum?id=ByexElSYDr)
-> 
-> [ICLR '20](https://iclr.cc/)
+# Fair Techniques in Federated Learning
 
  
 
