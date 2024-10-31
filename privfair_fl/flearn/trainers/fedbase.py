@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow.compat.v1 as tf
+tf.disable_eager_execution()
 from tqdm import tqdm
 
 from flearn.models.client import Client
@@ -73,17 +74,31 @@ class BaseFedarated(object):
         return intermediate_grads
  
   
+    # def test(self):
+    #     '''tests self.latest_model on given clients
+    #     '''
+    #     num_samples = []
+    #     tot_correct = []
+    #     self.client_model.set_params(self.latest_model)
+    #     for c in self.clients:
+    #         ct, ns = c.test()
+    #         tot_correct.append(ct*1.0)
+    #         num_samples.append(ns)
+    #     return num_samples, tot_correct
+
+
     def test(self):
-        '''tests self.latest_model on given clients
-        '''
+        '''tests self.latest_model on given clients and collects losses'''
         num_samples = []
         tot_correct = []
+        client_losses = []
         self.client_model.set_params(self.latest_model)
         for c in self.clients:
-            ct, ns = c.test()
-            tot_correct.append(ct*1.0)
+            ct, loss, ns = c.ditto_test()  # Ensure c.test() now also returns the loss
+            tot_correct.append(ct * 1.0)
             num_samples.append(ns)
-        return num_samples, tot_correct
+            client_losses.append(loss)  # Collect loss from each client
+        return num_samples, tot_correct, client_losses
 
 
     def validate(self):
@@ -103,7 +118,7 @@ class BaseFedarated(object):
         tot_correct = []
         #self.client_model.set_params(self.latest_model)
         for c in self.clients:
-            ct, ns = c.test()
+            ct, ns, loss = c.test()
             tot_correct.append(ct*1.0)
             num_samples.append(ns)
         ids = [c.id for c in self.clients]

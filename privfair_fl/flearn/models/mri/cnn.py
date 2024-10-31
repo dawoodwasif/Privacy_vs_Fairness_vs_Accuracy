@@ -121,6 +121,15 @@ class Model(object):
         with self.graph.as_default():
             loss = self.sess.run(self.loss, feed_dict={self.features: data['x'], self.labels: data['y']})
         return loss
+    
+    def solve_sgd(self, mini_batch_data):
+        with self.graph.as_default():
+            grads, loss, _ = self.sess.run([self.grads, self.loss, self.train_op],
+                                           feed_dict={self.features: mini_batch_data[0],
+                                                      self.labels: mini_batch_data[1]})
+
+        weights = self.get_params()
+        return grads, loss, weights
 
     def test(self, data):
         '''

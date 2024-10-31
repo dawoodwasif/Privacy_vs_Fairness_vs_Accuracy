@@ -86,7 +86,7 @@ class Client(object):
 
     def train_error(self):
         tot_correct, loss = self.model.test(self.train_data)
-        return tot_correct, self.train_samples
+        return tot_correct, loss, self.train_samples
     
     def train_error_and_loss(self):
         tot_correct, loss = self.model.test(self.train_data)
@@ -97,6 +97,16 @@ class Client(object):
         return tot_correct, loss, self.test_samples
 
 
+    def ditto_test(self):
+        '''tests current model on local eval_data
+
+        Return:
+            tot_correct: total #correct predictions
+            test_samples: int
+        '''
+        tot_correct, loss = self.model.test(self.test_data)
+        return tot_correct, loss, self.test_samples
+
     def test(self):
         '''tests current model on local eval_data
 
@@ -105,7 +115,7 @@ class Client(object):
             test_samples: int
         '''
         tot_correct, loss = self.model.test(self.test_data)
-        return tot_correct, self.test_samples
+        return tot_correct, self.test_samples, loss
 
     def validate(self):
         tot_correct, loss = self.model.test(self.val_data)

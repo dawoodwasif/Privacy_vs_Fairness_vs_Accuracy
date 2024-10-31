@@ -1,5 +1,5 @@
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tqdm import tqdm
 import copy
 
@@ -10,6 +10,10 @@ from flearn.utils.tf_utils import process_grad, norm_grad, norm_grad_sparse
 
 class BaseFedarated(object):
     def __init__(self, params, learner, dataset):
+        self.dynamic_lam = 0
+        self.lam = 0
+        self.num_corrupted = 0
+        self.local_iters = 12
         # transfer parameters to self
         for key, val in params.items():
             setattr(self, key, val)
@@ -68,7 +72,7 @@ class BaseFedarated(object):
 
         for idx, c in enumerate(self.clients):
             self.client_model.set_params(models[idx])
-            ct, cl, ns = c.test()
+            ct, cl, ns = c.ditto_test()
             tot_correct.append(ct * 1.0)
             num_samples.append(ns)
             losses.append(cl * 1.0)
@@ -201,3 +205,4 @@ class BaseFedarated(object):
 
         return self.simple_average(selected_parameters)
 
+    

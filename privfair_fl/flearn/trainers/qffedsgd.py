@@ -415,14 +415,62 @@
 #         np.savetxt(self.output + "_final_euclidean_distances.csv", np.array(all_rounds_distances), delimiter=",")
 #         print("Metrics saved successfully.")
 
+
+import tenseal as ts
+
 import numpy as np
 from tqdm import trange
-import tensorflow as tf
-import tenseal as ts
+import tensorflow.compat.v1 as tf
+tf.disable_eager_execution() 
 
 from .fedbase import BaseFedarated
 from flearn.utils.tf_utils import process_grad, cosine_sim, softmax, norm_grad
 from flearn.utils.model_utils import batch_data, gen_batch, gen_epoch
+
+
+# Differential Privacy function to add noise
+def add_dp_noise(gradient, epsilon, delta, sensitivity, mechanism, flag):
+    if not flag:
+        return gradient
+    
+    if mechanism == 'laplace':
+        noise_scale = sensitivity / epsilon
+        noise = np.random.laplace(loc=0.0, scale=noise_scale, size=gradient.shape)
+    elif mechanism == 'gaussian':
+        noise_scale = sensitivity * np.sqrt(2 * np.log(1.25 / delta)) / epsilon
+        noise = np.random.normal(loc=0.0, scale=noise_scale, size=gradient.shape)
+    else:
+        raise ValueError("Unsupported DP mechanism: {}".format(mechanism))
+
+    return gradient + noise
+
+# Homomorphic Encryption functions
+def apply_he(gradient, context, flag):
+    if flag and context is not None:
+        flattened_grad = gradient.flatten()
+        return ts.ckks_vector(context, flattened_grad)
+    return gradient
+
+def decrypt_he(gradient, original_shape, flag):
+    if flag:
+        decrypted_grad = np.array(gradient.decrypt())
+        return decrypted_grad.reshape(original_shape)
+    return gradient
+
+# SMC functions
+def apply_smc(gradient, num_shares, flag):
+    if flag:
+        shares = [np.random.random(gradient.shape) for _ in range(num_shares - 1)]
+        final_share = gradient - sum(shares)
+        shares.append(final_share)
+        return shares
+    return gradient
+
+def reconstruct_smc(shares, flag):
+    if flag:
+        return sum(shares)
+    return shares
+
 
 class Server(BaseFedarated):
     def __init__(self, params, learner, dataset, dp_params, he_params, smc_params):
@@ -434,7 +482,8 @@ class Server(BaseFedarated):
         self.epsilon = dp_params['epsilon']  # Privacy budget (epsilon)
         self.delta = dp_params['delta']  # DP delta parameter
         self.sensitivity = dp_params['sensitivity']  # Gradient sensitivity
-        self.dp_mechanism = dp_params['mechanism']  # Mechanism: 'laplace' or 'gaussian'
+        self.dp_type = dp_params['scope'] # LDP or GDP
+        self.mechanism = dp_params['mechanism']  # Mechanism: 'laplace' or 'gaussian'
 
         # Homomorphic Encryption (HE) parameters
         self.he_flag = he_params['he_flag']  # HE enable flag
@@ -459,121 +508,126 @@ class Server(BaseFedarated):
         # Initialize base federated class
         super(Server, self).__init__(params, learner, dataset)
 
-    # SMC functions
-    def apply_smc(self, gradient, round_num):
-        """Split gradient into random shares for SMC with round-based randomness."""
-        if self.smc_flag:
-            np.random.seed(round_num)  # Use round number as seed for randomness
-            shares = [np.random.random(gradient.shape) for _ in range(self.num_shares - 1)]
-            final_share = gradient - sum(shares)
-            shares.append(final_share)
-
-            # Optionally randomize share distribution between rounds
-            if self.dynamic_sharing:
-                shares = self.randomize_share_distribution(shares)
-
-            return shares
-        return gradient
-
-    def randomize_share_distribution(self, shares):
-        """Randomly shuffle the shares to prevent correlation across rounds."""
-        np.random.shuffle(shares)
-        return shares
-
-    def reconstruct_smc(self, shares):
-        """Reconstruct the gradient from its shares."""
-        if self.smc_flag:
-            return sum(shares)
-        return shares
 
     def train(self):
-        """Main training loop for federated learning."""
-        print(f'Training with {self.clients_per_round} clients using '
-              f'{"DP" if self.dp_flag else "HE" if self.he_flag else "SMC" if self.smc_flag else "no privacy"}.')
-        
+        print(f'Training with {self.clients_per_round} clients...')
+
         num_clients = len(self.clients)
-        pk = np.ones(num_clients) / num_clients  # Uniform probability distribution for client selection
+        pk = np.ones(num_clients) * 1.0 / num_clients
+
+        batches = {}
+        for c in self.clients:
+            batches[c] = gen_epoch(c.train_data, self.num_rounds + 2)
+
+        print('Have generated training batches for all clients...')
 
         all_rounds_variances = []
         all_rounds_distances = []
+        all_rounds_accuracies = []
+        all_rounds_loss_disparities = []
 
-        for round_num in trange(self.num_rounds + 1, desc='Round: ', ncols=120):
+        for round_num in trange(self.num_rounds + 1, desc='Round:', ncols=120):
             if round_num % self.eval_every == 0:
-                num_test, num_correct_test = self.test()
+                num_test, num_correct_test, client_losses = self.test()
                 test_accuracies = np.array(num_correct_test) / np.array(num_test)
                 variance = np.var(test_accuracies)
                 all_rounds_variances.append(variance)
 
                 mean_test_accuracy = np.mean(test_accuracies)
+                all_rounds_accuracies.append(mean_test_accuracy)
                 euclidean_distance = np.linalg.norm(test_accuracies - mean_test_accuracy)
                 all_rounds_distances.append(euclidean_distance)
 
-                print(f'\nRound {round_num} testing accuracy: {mean_test_accuracy:.4f}, '
-                      f'Variance: {variance:.4f}, Euclidean Distance: {euclidean_distance:.4f}')
+                loss_disparity = np.var(client_losses)
+                all_rounds_loss_disparities.append(loss_disparity)
 
-            # Select clients for this round
+                print(f'\nRound {round_num} - Testing accuracy: {mean_test_accuracy:.4f}, Variance: {variance:.4f}, Euclidean Distance: {euclidean_distance:.4f}, Loss Disparity: {loss_disparity:.4f}')
+
             indices, selected_clients = self.select_clients(round=round_num, pk=pk, num_clients=self.clients_per_round)
-            selected_clients = selected_clients.tolist()
-
+    
             Deltas = []
             hs = []
             weights_before = None
+            
+            selected_clients = selected_clients.tolist()
 
-            for client in selected_clients:
-                client.set_params(self.latest_model)
-                weights_before = client.get_params()
+            for c in selected_clients:
+                # communicate the latest model
+                c.set_params(self.latest_model)
+                weights_before = c.get_params()
 
-                if weights_before is None:
-                    print(f"Error: weights_before is None for client {client}.")
-                    continue
+                # solve minimization locally
+                batch = next(batches[c])
+                _, grads, loss = c.solve_sgd(batch)
 
-                loss = client.get_loss()
-                soln, stats = client.solve_inner(num_epochs=self.num_epochs, batch_size=self.batch_size)
-                new_weights = soln[1]
+                _, gradients_tuple = grads  # Unpack the integer and gradients tuple
+                grads = list(gradients_tuple)  # Convert to list for easier handling
 
-                # Compute gradients
-                grads = [(w_before - w_after) / self.learning_rate for w_before, w_after in zip(weights_before, new_weights)]
+                # Compute grad_shapes for encryption/decryption
+                grad_shapes = [grad.shape for grad in grads if hasattr(grad, 'shape')]
+        
 
-                # Apply SMC (if enabled)
-                grads_smc = [self.apply_smc(grad, round_num=round_num) for grad in grads]
-                grads_reconstructed = [self.reconstruct_smc(grad) for grad in grads_smc]
+                grads_encrypted = [apply_he(grad, self.context, self.he_flag if idx < self.n_layers_to_encrypt else False) for idx, grad in enumerate(grads)]
 
-                # q-FedSGD weighting for each client's contribution
-                Deltas.append([np.float_power(loss + 1e-10, self.q) * grad for grad in grads_reconstructed])
+                # Decrypt gradients before adding DP noise
+                grads_decrypted = [decrypt_he(grad, original_shape, self.he_flag if idx < self.n_layers_to_encrypt else False) for idx, (grad, original_shape) in enumerate(zip(grads_encrypted, grad_shapes))]
 
-                # Compute norm for the aggregation weighting
-                norm_grad_sum = np.sum([np.sum(np.square(grad)) for grad in grads_reconstructed])
-                hs.append(self.q * np.float_power(loss + 1e-10, (self.q - 1)) * norm_grad_sum + (1.0 / self.learning_rate) * np.float_power(loss + 1e-10, self.q))
+                # Apply LDP in the train function if dp_type is 'LDP'
+                if self.dp_type == 'LDP':
+                    grads_with_noise = [add_dp_noise(grad, self.epsilon, self.delta, self.sensitivity, self.mechanism, self.dp_flag) for grad in grads_decrypted]
+                else:
+                    grads_with_noise = grads_decrypted
 
-            # Aggregate updated gradients
-            self.latest_model = self.aggregate2(weights_before, Deltas, hs)
+                # Apply SMC
+                grads_smc = [apply_smc(grad, self.num_shares, self.smc_flag) for grad in grads_with_noise]
+                grads_reconstructed = [reconstruct_smc(grad, self.smc_flag) for grad in grads_smc]
 
-        # Log final variance and Euclidean distance
-        final_variance = np.mean(all_rounds_variances)
-        final_euclidean_distance = np.mean(all_rounds_distances)
+                Deltas.append([np.float_power(loss+1e-10, self.q) * grad for grad in grads_reconstructed])
 
-        print(f"\nFinal Average Variance in Testing Accuracy: {final_variance:.4f}")
-        print(f"Final Average Euclidean Distance in Testing Accuracy: {final_euclidean_distance:.4f}")
+                if self.static_step_size:
+                    hs.append(1.0 / self.learning_rate)
+                else:
+                    hs.append(self.q * np.float_power(loss+1e-10, (self.q-1)) * norm_grad(grads_reconstructed) + (1.0/self.learning_rate) * np.float_power(loss+1e-10, self.q))
+
+
+            self.latest_model = self.aggregate3(weights_before, Deltas, hs)
+
+        # Log final metrics
+        print(f"Final Average Variance: {np.mean(all_rounds_variances):.4f}")
+        print(f"Final Average Euclidean Distance: {np.mean(all_rounds_distances):.4f}")
 
         # Save metrics to files
         np.savetxt(self.output + "_final_variances.csv", np.array(all_rounds_variances), delimiter=",")
         np.savetxt(self.output + "_final_euclidean_distances.csv", np.array(all_rounds_distances), delimiter=",")
+        np.savetxt(self.output + "_final_accuracies.csv", np.array(all_rounds_accuracies), delimiter=",")
+        np.savetxt(self.output + "_final_loss_disparities.csv", np.array(all_rounds_loss_disparities), delimiter=",")
+
         print("Metrics saved successfully.")
 
-def aggregate2(weights_before, updates, hs):
-    """Aggregate client updates into the global model."""
-    new_solutions = []
-    for w, delta in zip(weights_before, updates):
-        delta_sum = np.zeros_like(w)  # Initialize delta sum with the same shape as weights
+    def aggregate3(self, weights_before, Deltas, hs): 
+        
+        demominator = np.sum(np.asarray(hs))
+        num_clients = len(Deltas)
+        scaled_deltas = []
+        for client_delta in Deltas:
+            scaled_deltas.append([layer * 1.0 / demominator for layer in client_delta])
 
-        for delta_i, h_i in zip(delta, hs):
-            # Ensure h_i is properly broadcastable to delta_i's shape
-            if np.isscalar(h_i):
-                delta_sum += delta_i * h_i  # Scalar multiplication
-            else:
-                reshaped_h_i = np.reshape(h_i, delta_i.shape)
-                delta_sum += delta_i * reshaped_h_i
+        updates = []
+        num_layers = min(len(delta) for delta in scaled_deltas)  # Ensure consistent length
+        for i in range(num_layers):
+            tmp = scaled_deltas[0][i]
+            for j in range(1, len(scaled_deltas)):
+                tmp += scaled_deltas[j][i]
 
-        new_solutions.append(w - delta_sum)
+            updates.append(tmp)
 
-    return new_solutions
+        new_solutions = [(u - v) * 1.0 for u, v in zip(weights_before, updates)]
+                
+        if self.dp_type == 'GDP':
+            newer_solutions=[]
+            for solution in new_solutions:
+                newer_solutions.append(add_dp_noise(solution,self.epsilon, self.delta, self.sensitivity, self.mechanism, self.dp_flag))
+        else:
+            newer_solutions = new_solutions
+
+        return newer_solutions

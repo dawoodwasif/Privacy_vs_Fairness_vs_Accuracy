@@ -1,6 +1,9 @@
 import json
 import numpy as np
 import os
+from PIL import Image
+import tensorflow.compat.v1 as tf
+tf.disable_eager_execution()
 
 def batch_data(data, batch_size):
     '''
@@ -44,20 +47,37 @@ def batch_data2(data, batch_size):
         batched_y = data_y[i:i+batch_size]
         yield (batched_x, batched_y)
 
+def process_x(raw_x_batch):
+    x_batch = [load_image(i) for i in raw_x_batch]
+    x_batch = np.array(x_batch)
+    return x_batch
 
+def process_y(raw_y_batch):
+    return raw_y_batch
 
+def load_image(img_name):
+    IMAGE_SIZE = 84
 
-def gen_batch(data, batch_size, num_iter):
-    data_x = data['x']
-    data_y = data['y']
-    index = len(data_y) 
+    IMAGES_DIR = os.path.join('data', 'celeba', 'data', 'raw', 'img_align_celeba')
+    img = Image.open(os.path.join(IMAGES_DIR, img_name))
+    img = img.resize((IMAGE_SIZE, IMAGE_SIZE)).convert('RGB')
+    return np.array(img)
+
+def gen_batch_celeba(data, batch_size, num_iter):
+    data_x_name = data['x']
+    data_y_name = data['y']
+
+    data_x = np.asarray(process_x(data_x_name))
+    data_y = np.asarray(process_y(data_y_name))
+
+    index = len(data_y)
 
     for i in range(num_iter):
         index += batch_size
         if (index + batch_size > len(data_y)):
             index = 0
-            np.random.seed(i+1)
-            # randomly shuffle the data after one pass of the entire training set         
+            np.random.seed(i + 1)
+            # randomly shuffle the data after one pass of the entire training set
             rng_state = np.random.get_state()
             np.random.shuffle(data_x)
             np.random.set_state(rng_state)
@@ -65,8 +85,70 @@ def gen_batch(data, batch_size, num_iter):
 
         batched_x = data_x[index: index + batch_size]
         batched_y = data_y[index: index + batch_size]
-        
+
         yield (batched_x, batched_y)
+
+# def gen_batch(data, batch_size, num_iter):
+#     data_x = data['x']
+#     data_y = data['y']
+#     index = len(data_y) 
+
+#     for i in range(num_iter):
+#         index += batch_size
+#         if (index + batch_size > len(data_y)):
+#             index = 0
+#             np.random.seed(i+1)
+#             # randomly shuffle the data after one pass of the entire training set         
+#             rng_state = np.random.get_state()
+#             np.random.shuffle(data_x)
+#             np.random.set_state(rng_state)
+#             np.random.shuffle(data_y)
+
+#         batched_x = data_x[index: index + batch_size]
+#         batched_y = data_y[index: index + batch_size]
+        
+#         yield (batched_x, batched_y)
+
+def gen_batch(data, batch_size, num_iter):
+    data_x = data['x']
+    data_y = data['y']
+    total_data_points = len(data_y)
+    print(f"Total data points for client: {total_data_points}")
+
+    if total_data_points == 0:
+        raise ValueError("Client has no data!")
+
+    index = 0
+
+    for i in range(num_iter):
+        # If the remaining data is less than a batch size, reset index and shuffle
+        if index + batch_size > total_data_points:
+            index = 0
+            np.random.seed(i + 1)
+            # Shuffle the data after one pass
+            rng_state = np.random.get_state()
+            np.random.shuffle(data_x)
+            np.random.set_state(rng_state)
+            np.random.shuffle(data_y)
+            # print(f"Shuffling data at iteration {i}")
+
+        # Select the batch
+        batched_x = data_x[index: index + batch_size]
+        batched_y = data_y[index: index + batch_size]
+
+        if len(batched_x) == 0 or len(batched_y) == 0:
+            print(f"Empty batch encountered at iteration {i}. This should not happen!")
+            raise StopIteration("No more data available")
+
+        # Log batch info
+        # print(f"Yielding batch {i + 1}/{num_iter} with index {index} for client, batch size {batch_size}")
+
+        # Move index forward
+        index += batch_size
+
+        yield (batched_x, batched_y)
+
+
 
 def gen_epoch(data, num_iter):
     '''

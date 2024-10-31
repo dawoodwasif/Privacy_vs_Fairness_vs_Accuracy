@@ -1,5 +1,5 @@
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tqdm import trange
 
 from flearn.utils.model_utils import batch_data
