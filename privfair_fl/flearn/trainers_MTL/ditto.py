@@ -688,7 +688,8 @@ class Server(BaseFedarated):
                 variance = np.var(test_accuracies)
                 mean_test_accuracy = np.mean(test_accuracies)
                 euclidean_distance = np.linalg.norm(test_accuracies - mean_test_accuracy)
-                disparity_loss = np.max(test_accuracies) - np.min(test_accuracies)  # Example of disparity loss
+                disparity_loss = np.var(loss_vector)  # Variance of each client’s loss
+                # disparity_loss = np.max(test_accuracies) - np.min(test_accuracies)  # Example of disparity loss
 
                 # Append metrics for the round
                 self.all_rounds_variances.append(variance)
@@ -775,6 +776,6 @@ class Server(BaseFedarated):
         np.savetxt(self.output + "_final_variances.csv", np.array(self.all_rounds_variances), delimiter=",")
         np.savetxt(self.output + "_final_euclidean_distances.csv", np.array(self.all_rounds_distances), delimiter=",")
         np.savetxt(self.output + "_final_accuracies.csv", np.array(self.all_rounds_accuracies), delimiter=",")
-        np.savetxt(self.output + "_final_disparity_losses.csv", np.array(self.all_rounds_disparity_losses), delimiter=",")  # Save disparity losses to CSV
+        np.savetxt(self.output + "_final_loss_disparities.csv", np.array(self.all_rounds_disparity_losses), delimiter=",")  # Save disparity losses to CSV
 
         print("Metrics saved successfully.")

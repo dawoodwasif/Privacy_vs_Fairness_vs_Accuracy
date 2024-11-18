@@ -52,9 +52,9 @@ run_simulation() {
 # Max concurrent jobs
 max_jobs=8
 current_jobs=0
-q_value=10
+q_value=1
 lr_value=0.1
-dataset="mnist_non_iid_backdoor"
+dataset="fmnist_non_iid_backdoor"
 
 ### MNIST SIMULATION
 for optimizer in "${optimizers[@]}"; do

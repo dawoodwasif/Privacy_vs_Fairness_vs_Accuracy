@@ -1,3 +1,5 @@
+import tenseal as ts
+
 import numpy as np
 import argparse
 import importlib
@@ -11,7 +13,10 @@ from flearn.utils.model_utils import read_data
 OPTIMIZERS = ['qffedsgd', 'qffedavg', 'afl', 'maml', 'ditto']
 DATASETS = [ 'synthetic', 'vehicle', 'sent140', 'shakespeare',
 'synthetic_iid', 'synthetic_hybrid', 
-'fmnist', 'adult', 'omniglot', 'mnist', 'mri_iid', 'mri_non_iid']   
+'fmnist', 'fmnist_non_iid', 'adult', 'omniglot', 'mnist', 'mnist_non_iid', 'mri_iid', 'mri_non_iid',
+'mnist_iid_data_poisoning', 'mnist_non_iid_data_poisoning', 'fmnist_iid_data_poisoning', 'fmnist_non_iid_data_poisoning', 'mri_iid_data_poisoning', 'mri_non_iid_data_poisoning',
+'mnist_iid_backdoor', 'mnist_non_iid_backdoor', 'fmnist_iid_backdoor', 'fmnist_non_iid_backdoor', 'mri_iid_backdoor', 'mri_non_iid_backdoor'
+]   
 
 
 MODEL_PARAMS = {
@@ -19,7 +24,10 @@ MODEL_PARAMS = {
     'adult.lr_afl': (2, ), # num_classes,
     'sent140.stacked_lstm': (25, 2, 100), # seq_len, num_classes, num_hidden 
     'fmnist.lr': (3,), # num_classes
+    'fmnist.cnn': (3,), # num_classes
+    'fmnist_non_iid.cnn': (3,), # num_classes
     'mnist.cnn': (10,),  # num_classes
+    'mnist_non_iid.cnn': (10,),  # num_classes
     'mri.cnn': (2,),  # num_classes
     'shakespeare.stacked_lstm': (80, 80, 256), # seq_len, num_class num_hidden
     'synthetic.mclr': (10, ), # num_classes
@@ -40,7 +48,7 @@ def read_options():
                     help='name of dataset;',
                     type=str,
                     choices=DATASETS,
-                    default='nist')
+                    default='mnist')
     parser.add_argument('--model',
                     help='name of model;',
                     type=str,
@@ -141,26 +149,30 @@ def read_options():
                         help='mechanism for differential privacy (laplace, gaussian, randomized_response, exponential);',
                         type=str,
                         default='gaussian')
+    parser.add_argument('--dp_scope',
+                        help='DP scope can be local or global, so set it to either LDP or GDP only;',
+                        type=str,
+                        default='GDP')
     parser.add_argument('--dp_flag',
                         help='flag for dp;',
-                        type=bool,
-                        default=False)
+                        type=str,
+                        default='False')
     
 
     # Homomorphic Encryption (HE) parameters
     parser.add_argument('--he_flag',
                         help='flag to enable homomorphic encryption (HE);',
-                        type=bool,
-                        default=False)
+                        type=str,
+                        default='False')
     parser.add_argument('--he_poly_modulus_degree',
                         help='degree of the polynomial modulus (e.g., 4096, 8192, 16384);',
                         type=int,
-                        default=16384
+                        default=4096
                         )
     parser.add_argument('--he_coeff_mod_bit_sizes',
                         help='bit sizes for each coefficient modulus; should be a list (e.g., [60, 40, 40, 60]);',
                         type=lambda s: [int(item) for item in s.split(',')],
-                        default=[60, 40, 40, 60]
+                        default=[40,20,40]
                         )
     parser.add_argument('--he_global_scale',
                         help='global scale used in CKKS (usually a power of 2, e.g., 2^40);',
@@ -169,7 +181,7 @@ def read_options():
     parser.add_argument('--he_encrypt_layers',
                         help='number of layers to encrypt ;',
                         type=int,
-                        default=5)                      
+                        default=1)                      
     parser.add_argument('--he_galois_keys',
                         help='flag to generate galois keys for HE rotations;',
                         type=bool,
@@ -179,8 +191,8 @@ def read_options():
         # Secure Multi Party Computation (SMC) parameters
     parser.add_argument('--smc_flag',
                         help='flag to enable smc;',
-                        type=bool,
-                        default=False)
+                        type=str,
+                        default='False')
     parser.add_argument('--smc_threshold',
                         help='minimum shares are needed to reconstruct the secret,',
                         type=int,
@@ -192,20 +204,50 @@ def read_options():
                         default=10
                         )
     
+    # Data Anonymization
+    parser.add_argument('--data_anon',
+                        help='data anonymization technique: t, k or l',
+                        type=str,
+                        default=None
+                        )
+    
     try: parsed = vars(parser.parse_args())
     except IOError as msg: parser.error(str(msg))
 
 
+    # Convert the flags to booleans after parsing
+    parsed['dp_flag'] = parsed['dp_flag'].lower() == 'true'
+    parsed['he_flag'] = parsed['he_flag'].lower() == 'true'
+    parsed['smc_flag'] = parsed['smc_flag'].lower() == 'true'
 
+    # # load selected model
+    # if parsed['dataset'].startswith("synthetic"):  # all synthetic datasets use the same model
+    #     model_path = '%s.%s.%s.%s' % ('flearn', 'models', 'synthetic', parsed['model'])
+    # elif parsed['dataset'].startswith("mri"):  # MRI_AD Dataset has iid and non iid versions
+    #     model_path = '%s.%s.%s.%s' % ('flearn', 'models', 'mri', parsed['model'])
+    #     parsed['dataset'] += f"/run{parsed['run_number']}" # change slash for each OS
+    # else:
+    #     model_path = '%s.%s.%s.%s' % ('flearn', 'models', parsed['dataset'], parsed['model'])
+
+    # Update the model path selection to handle data poisoning datasets
 
     # load selected model
     if parsed['dataset'].startswith("synthetic"):  # all synthetic datasets use the same model
         model_path = '%s.%s.%s.%s' % ('flearn', 'models', 'synthetic', parsed['model'])
-    elif parsed['dataset'].startswith("mri"):  # MRI_AD Dataset has iid and non iid versions
+    elif parsed['dataset'].startswith("mri"):  # MRI Dataset with possible IID and non-IID versions
         model_path = '%s.%s.%s.%s' % ('flearn', 'models', 'mri', parsed['model'])
-        parsed['dataset'] += f"/run{parsed['run_number']}" # change slash for each OS
+        parsed['dataset'] += f"/run{parsed['run_number']}"
+    elif parsed['dataset'].startswith("mnist"):  # Handle MNIST and its data poisoning variants
+        model_path = '%s.%s.%s.%s' % ('flearn', 'models', 'mnist', parsed['model'])
+    elif parsed['dataset'].startswith("fmnist"):  # Handle FMNIST and its data poisoning variants
+        if "non_iid" in parsed['dataset']:
+            model_path = '%s.%s.%s.%s' % ('flearn', 'models', 'fmnist_non_iid', parsed['model'])
+        else:
+            model_path = '%s.%s.%s.%s' % ('flearn', 'models', 'fmnist', parsed['model'])
     else:
         model_path = '%s.%s.%s.%s' % ('flearn', 'models', parsed['dataset'], parsed['model'])
+
+
 
     mod = importlib.import_module(model_path)
     learner = getattr(mod, 'Model')
@@ -236,7 +278,9 @@ def read_options():
         'delta': parsed['dp_delta'],
         'sensitivity': parsed['dp_sensitivity'],
         'mechanism': parsed['dp_mechanism'],
-        'dp_flag': parsed['dp_flag']
+        'scope': parsed['dp_scope'],
+        'dp_flag': parsed['dp_flag'],
+        'data_anon': parsed['data_anon']
     }
 
     he_params = {
@@ -275,6 +319,12 @@ def main():
     test_path = os.path.join('data', options['dataset'], 'data', 'test')
     dataset = read_data(train_path, test_path)
 
+    # Print which flags are enabled
+    print(f"DP Flag: {options['dp_params']['dp_flag']}")
+    print(f"HE Flag: {options['he_params']['he_flag']}")
+    print(f"SMC Flag: {options['smc_params']['smc_flag']}")
+
+
     # call appropriate trainer
     t = optimizer(options, learner, dataset, dp_params=options['dp_params'], he_params=options['he_params'], smc_params=options['smc_params'])
     t.train()
@@ -298,8 +348,3 @@ def save_model(trainer, options):
 
 if __name__ == '__main__':
     main()
-
-
-
-
-

@@ -915,6 +915,96 @@ from .fedbase import BaseFedarated
 from flearn.utils.tf_utils import process_grad, cosine_sim, softmax, norm_grad
 from flearn.utils.model_utils import batch_data, gen_batch, gen_epoch
 
+
+# Add this function to calculate DA leakage rate
+def calculate_da_leakage_rate(prev_grads, current_grads):
+    """
+    Calculates the DA leakage rate by measuring the sum of absolute differences 
+    in gradients between consecutive rounds.
+
+    Args:
+    - prev_grads: List of gradients from the previous round.
+    - current_grads: List of gradients from the current round.
+
+    Returns:
+    - DA leakage rate as a float, representing the extent of data leakage.
+    """
+    leakage_metric = 0
+    for prev, curr in zip(prev_grads, current_grads):
+        leakage_metric += np.sum(np.abs(prev - curr))  # Sum of absolute differences
+    return leakage_metric
+
+
+def add_anonymization_privacy(gradients, data, k=None, l=None, t=None, grouping_function=None):
+    """
+    Applies a single anonymization technique on gradients based on K-Anonymity, L-Diversity, or T-Closeness.
+    
+    Args:
+    - gradients: list of gradient updates from clients.
+    - data: client data used for gradient calculation.
+    - k: optional, parameter for K-Anonymity (ensures similar data points are grouped).
+    - l: optional, parameter for L-Diversity (ensures diversity within groups).
+    - t: optional, parameter for T-Closeness (matches batch distribution to overall distribution).
+    - grouping_function: function to group data points (used in K-Anonymity and L-Diversity).
+
+    Returns:
+    - Anonymized gradients based on the specified technique.
+    """
+    if k is not None:
+        # Apply K-Anonymity by grouping similar data points
+        if grouping_function is None:
+            raise ValueError("A grouping_function must be provided for K-Anonymity.")
+        
+        grouped_gradients = []
+        groups = {}
+        
+        # Group data by applying the grouping function, with checks for data type compatibility
+        for d, g in zip(data, gradients):
+            try:
+                group_key = grouping_function(d) if callable(grouping_function) else d
+            except Exception:
+                raise ValueError("Invalid data structure for grouping function in K-Anonymity. "
+                                 "Ensure the data structure matches the grouping_function.")
+
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append(g)
+        
+        # Average gradients within each group that meets the K-Anonymity requirement
+        for group, group_grads in groups.items():
+            if len(group_grads) >= k:
+                avg_gradient = np.mean(group_grads, axis=0)
+                grouped_gradients.append(avg_gradient)
+        return grouped_gradients
+    
+    elif l is not None:
+        # Apply L-Diversity by ensuring each gradient has at least `l` unique values
+        diversified_gradients = []
+        for g in gradients:
+            unique_elements = np.unique(g.flatten())  # Flatten gradient to find unique elements
+            if len(unique_elements) >= l:
+                diversified_gradients.append(g)
+            else:
+                # Add synthetic diversity by adding slight random noise
+                diversified_gradients.append(g + np.random.normal(0, 0.01, g.shape))
+        return diversified_gradients
+
+    elif t is not None:
+        # Apply T-Closeness by adjusting each gradient towards its own mean distribution
+        t_closeness_gradients = [
+            (1 - t) * g + t * np.mean(g, axis=0, keepdims=True) for g in gradients
+        ]
+        return t_closeness_gradients
+
+
+
+    
+    # If no anonymization parameter is provided, return gradients unchanged
+    return gradients
+
+
+
+
 # Differential Privacy function to add noise
 def add_dp_noise(gradient, epsilon, delta, sensitivity, mechanism, flag):
     if not flag:
@@ -976,6 +1066,9 @@ class Server(BaseFedarated):
         self.n_layers_to_encrypt = he_params['he_encrypt_layers']
         self.context = None
 
+        # Data Anonymization 
+        self.data_anon = dp_params['data_anon']
+
         if self.he_flag:
             self.context = ts.context(
                 ts.SCHEME_TYPE.CKKS, 
@@ -1003,6 +1096,10 @@ class Server(BaseFedarated):
         all_rounds_distances = []
         all_rounds_accuracies = []
         all_rounds_loss_disparities = []
+        prev_round_grads = None  # Initialize variable to store gradients from the previous round
+        all_rounds_da_leakage_rates = []  # To store DA leakage rate for each round
+
+
 
         for i in trange(self.num_rounds + 1, desc='Round: ', ncols=120):
             if i % self.eval_every == 0:
@@ -1026,6 +1123,8 @@ class Server(BaseFedarated):
             hs = []
             weights_before = None
             client_losses = []
+            current_grads_list = []  # Store current round gradients for DA leakage calculation
+
 
             selected_clients = selected_clients.tolist()
 
@@ -1039,6 +1138,33 @@ class Server(BaseFedarated):
                 new_weights = soln[1]
 
                 grads = [(u - v) / self.learning_rate for u, v in zip(weights_before, new_weights)]
+
+                # Apply selected data anonymization method based on `self.data_anon`
+                # Example usage in the train method
+                # Example usage in the train method
+                if self.data_anon == "k":
+                    # Apply K-Anonymity with grouping function compatible with strings and other data types
+                    anonymized_grads = add_anonymization_privacy(
+                        grads, c.train_data, k=3, grouping_function=lambda d: hash(d) % 10 if isinstance(d, str) else d
+                    )
+                    grads = anonymized_grads
+
+                elif self.data_anon == "l":
+                    # Apply L-Diversity, no grouping function is needed as it ensures diversity within each gradient
+                    anonymized_grads = add_anonymization_privacy(
+                        grads, c.train_data, l=2
+                    )
+                    grads = anonymized_grads
+
+                elif self.data_anon == "t":
+                    # Apply T-Closeness by adjusting gradients to match the overall distribution
+                    anonymized_grads = add_anonymization_privacy(
+                        grads, c.train_data, t=0.1
+                    )
+                    grads = anonymized_grads
+
+
+
 
                 grad_shapes = [grad.shape for grad in grads]
                 grads_encrypted = [apply_he(grad, self.context, self.he_flag if idx < self.n_layers_to_encrypt else False) for idx, grad in enumerate(grads)]
@@ -1059,9 +1185,23 @@ class Server(BaseFedarated):
                 norm_grad_sum = np.sum([np.sum(np.square(grad)) for grad in grads_reconstructed])
                 hs.append(self.q * np.float_power(loss + 1e-10, (self.q - 1)) * norm_grad_sum + (1.0 / self.learning_rate) * np.float_power(loss + 1e-10, self.q))
 
+                current_grads_list.extend(grads_reconstructed)  # Track current round gradients
+            
             self.latest_model = self.aggregate3(weights_before, Deltas, hs)
 
+            # Calculate DA leakage rate if previous round gradients are available
+            if prev_round_grads is not None:
+                da_leakage_rate = calculate_da_leakage_rate(prev_round_grads, current_grads_list)
+                all_rounds_da_leakage_rates.append(da_leakage_rate)  # Track all DA leakage rates
+                print(f'Round {i} DA Leakage Metric: {da_leakage_rate:.4f}')
+
+            # Update previous round gradients for the next iteration
+            prev_round_grads = current_grads_list.copy()
+
         # Log final metrics
+        # At the end of training, calculate and print the final average DA leakage rate
+        final_da_leakage_rate = np.mean(all_rounds_da_leakage_rates)
+        print(f"Final Average DA Leakage Rate: {final_da_leakage_rate:.4f}")
         print(f"Final Average Variance: {np.mean(all_rounds_variances):.4f}")
         print(f"Final Average Euclidean Distance: {np.mean(all_rounds_distances):.4f}")
 
@@ -1069,6 +1209,8 @@ class Server(BaseFedarated):
         np.savetxt(self.output + "_final_euclidean_distances.csv", np.array(all_rounds_distances), delimiter=",")
         np.savetxt(self.output + "_final_accuracies.csv", np.array(all_rounds_accuracies), delimiter=",")
         np.savetxt(self.output + "_final_loss_disparities.csv", np.array(all_rounds_loss_disparities), delimiter=",")
+        # np.savetxt(self.output + "_da_leakage_rates.csv", np.array(all_rounds_da_leakage_rates), delimiter=",")
+
 
         print("Metrics saved successfully.")
 

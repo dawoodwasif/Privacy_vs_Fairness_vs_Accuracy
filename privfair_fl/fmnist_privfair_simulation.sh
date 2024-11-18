@@ -25,7 +25,7 @@ run_simulation() {
     local simulation_type=$4
     local q=$5
     local lr=$6
-    local base_dir="./mnist_non_iid_privfair_experiments_OFFICIAL_LAST/${optimizer}/${privacy_tech}_${param_value}_q${q}_lr${lr}"
+    local base_dir="./fmnist_privfair_experiments_OFFICIAL_LAST/${optimizer}/${privacy_tech}_${param_value}_q${q}_lr${lr}"
     local output_csv="${base_dir}/${optimizer}_${privacy_tech}_${simulation_type}_final_accuracies.csv"
     local log_file="${base_dir}/${optimizer}_${privacy_tech}_${simulation_type}.log"
     local script_name="${base_dir}/run_${privacy_tech}_${optimizer}.sh"
@@ -81,17 +81,19 @@ run_simulation() {
     fi
 }
 
+
 # Max concurrent jobs
-max_jobs=16
+max_jobs=18
 current_jobs=0
 lr_value=0.1
+dataset="fmnist"
 
-# Task 1: q-FedAvg with q=0, 1, 5, 10 for GDP and LDP (epsilon 0.5, 1) and HE (modulus 4k, 8k)
+# Task 1: q-FedAvg with q=0, 1, 5, 10 for GDP and LDP  and HE (modulus 4k, 8k)
 for q in "${q_values1[@]}"; do
     for epsilon in "${epsilon_values1[@]}"; do
         for optimizer in "${optimizers[@]}"; do
             # Run LDP simulation
-            run_simulation "$optimizer" "LDP" "$epsilon" "mnist_non_iid" $q $lr_value &
+            run_simulation "$optimizer" "LDP" "$epsilon" $dataset $q $lr_value &
             ((current_jobs++))
             if [[ $current_jobs -ge $max_jobs ]]; then
                 wait -n
@@ -99,7 +101,7 @@ for q in "${q_values1[@]}"; do
             fi
 
             # Run GDP simulation
-            run_simulation "$optimizer" "GDP" "$epsilon" "mnist_non_iid" $q $lr_value &
+            run_simulation "$optimizer" "GDP" "$epsilon" $dataset $q $lr_value &
             ((current_jobs++))
             if [[ $current_jobs -ge $max_jobs ]]; then
                 wait -n
@@ -111,7 +113,7 @@ for q in "${q_values1[@]}"; do
     # Run HE simulation
     for modulus in "${modulus_values1[@]}"; do
         for optimizer in "${optimizers[@]}"; do
-            run_simulation "$optimizer" "HE" "$modulus" "mnist_non_iid" $q $lr_value &
+            run_simulation "$optimizer" "HE" "$modulus" $dataset $q $lr_value &
             ((current_jobs++))
             if [[ $current_jobs -ge $max_jobs ]]; then
                 wait -n
@@ -129,7 +131,7 @@ for q in "${q_values2[@]}"; do
     for epsilon in "${epsilon_values2[@]}"; do
         for optimizer in "${optimizers[@]}"; do
             # Run LDP simulation
-            run_simulation "$optimizer" "LDP" "$epsilon" "mnist_non_iid" $q $lr_value &
+            run_simulation "$optimizer" "LDP" "$epsilon" $dataset $q $lr_value &
             ((current_jobs++))
             if [[ $current_jobs -ge $max_jobs ]]; then
                 wait -n
@@ -137,7 +139,7 @@ for q in "${q_values2[@]}"; do
             fi
 
             # Run GDP simulation
-            run_simulation "$optimizer" "GDP" "$epsilon" "mnist_non_iid" $q $lr_value &
+            run_simulation "$optimizer" "GDP" "$epsilon" $dataset $q $lr_value &
             ((current_jobs++))
             if [[ $current_jobs -ge $max_jobs ]]; then
                 wait -n
@@ -149,7 +151,7 @@ for q in "${q_values2[@]}"; do
     # Run HE simulation
     for modulus in "${modulus_values2[@]}"; do
         for optimizer in "${optimizers[@]}"; do
-            run_simulation "$optimizer" "HE" "$modulus" "mnist_non_iid" $q $lr_value &
+            run_simulation "$optimizer" "HE" "$modulus" $dataset $q $lr_value &
             ((current_jobs++))
             if [[ $current_jobs -ge $max_jobs ]]; then
                 wait -n
@@ -161,3 +163,4 @@ done
 
 # Wait for all Task 2 jobs to finish
 wait
+

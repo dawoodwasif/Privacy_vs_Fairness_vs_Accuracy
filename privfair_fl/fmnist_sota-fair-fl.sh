@@ -50,15 +50,14 @@ run_simulation() {
 }
 
 # Max concurrent jobs
-max_jobs=8
+max_jobs=6
 current_jobs=0
 q_value=10
 lr_value=0.1
-dataset="mnist_non_iid_backdoor"
 
 ### MNIST SIMULATION
 for optimizer in "${optimizers[@]}"; do
-    run_simulation "$optimizer" $dataset $q_value $lr_value &
+    run_simulation "$optimizer" "fmnist" $q_value $lr_value &
     ((current_jobs++))
     if [[ $current_jobs -ge $max_jobs ]]; then
         wait -n
