@@ -1,5 +1,4 @@
-# Empirical Analysis of Privacy-Fairness-Accuracy Trade-offs in Federated Learning  
-### A Step Towards Responsible AI  
+# Empirical Analysis of Privacy-Fairness-Accuracy Trade-offs in Federated Learning: A Step Towards Responsible AI  
 **Published in AAAI/ACM AIES 2025**
 
 ## 🧠 Overview
@@ -40,7 +39,7 @@ This framework is compatible with a variety of fairness-aware optimization algor
 
 - **Attack Models**:
   - *Membership Inference Attack (MIA)*: To evaluate leakage under DP.
-  - *Gradient Inference Attack (GIA)*: To assess representational leakage.
+  - *Gradient Leakage Rate (GLR)*: To assess representational leakage.
 
 - **Evaluation Metrics**:
   - **Accuracy**: Standard classification metrics.
